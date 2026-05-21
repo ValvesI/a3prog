@@ -228,7 +228,7 @@ bool exportTileSet(const char* filename, TileSet* set) {
     return true;
 }
 
-void drawTiles(TileSet* set) {
+void drawTiles(TileSet* set, int32_t offsetX, int32_t offsetY) {
     if (!set)
         return;
 
@@ -237,8 +237,8 @@ void drawTiles(TileSet* set) {
     for (size_t i = 0; i < set->num_tiles; i++) {
         current = &set->tiles[i];
 
-        float x  = current->bounds.x;
-        float y  = current->bounds.y;
+        float x  = current->bounds.x + offsetX;
+        float y  = current->bounds.y + offsetY;
         float x2 = x + current->bounds.w;
         float y2 = y + current->bounds.h;
 
@@ -458,6 +458,7 @@ int main() {
                 // subindo
                 if(player->velY < 0){
 
+                    //atingiu altura maxima
                     if(player->jump){
                         player->velY += game->gravity;
                     }
@@ -491,7 +492,7 @@ int main() {
             // render
             al_clear_to_color(al_map_rgb(20, 20, 20));
 
-            drawTiles(game->tile_set);
+            drawTiles(game->tile_set, game->screenOffsetX, game->screenOffsetY);
 
             al_draw_filled_rectangle(
                 player->bounds.x,
@@ -571,8 +572,8 @@ int main() {
                 if (ev.mouse.button == 1) {
                     addTile(
                         game->tile_set,
-                        adjustToGrid(mx, DEFAULT_TILE_SIZE),
-                        adjustToGrid(my, DEFAULT_TILE_SIZE),
+                        adjustToGrid(mx, DEFAULT_TILE_SIZE) - game->screenOffsetX,
+                        adjustToGrid(my, DEFAULT_TILE_SIZE) - game->screenOffsetY,
                         &game->nextTileId,
                         game->currentTileType
                     );
