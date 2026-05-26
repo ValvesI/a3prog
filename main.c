@@ -15,14 +15,19 @@
 #define BASE_HP 3
 
 typedef enum FLAGS {
-    SOLID
+    SOLID,
+    TRESPASSABLE,
 } FLAG;
 
 typedef enum TILE_TYPE {
     SOLID_DEFAULT,
+    TRESPASSABLE_DEFAULT,
     SPIKE,
     RANDOM,
-    FINISH
+    FINISH,
+    YELLOW_ORB,
+    BLACK_ORB,
+    DASH_ORB
 } TILE_TYPE;
 
 typedef struct bounds {
@@ -43,6 +48,8 @@ typedef struct player {
 
     bool grounded;
     bool jump;
+    bool actionAwait;
+    //bool actionOnCooldown;
 
     float velY;
     float velX;
@@ -158,7 +165,7 @@ int adjustToGrid(float value, int32_t gridSize) {
 
 Tile getTileSpecs(TILE_TYPE type, int32_t id, float x, float y) {
     Tile tile = {0};
-
+    for(int i = 0; i < FLAG_NUM; i++) tile.flags[i] = false;
     tile.bounds = (Bounds){ x, y, DEFAULT_TILE_SIZE, DEFAULT_TILE_SIZE };
     tile.id = id;
     tile.tile_type = type;
@@ -166,6 +173,9 @@ Tile getTileSpecs(TILE_TYPE type, int32_t id, float x, float y) {
     switch (type) {
         case SOLID_DEFAULT:
             tile.flags[SOLID] = true;
+            break;
+        case TRESPASSABLE_DEFAULT:
+            tile.flags[TRESPASSABLE] = true;
             break;
         case SPIKE:
             tile.flags[SOLID] = false;
@@ -176,6 +186,12 @@ Tile getTileSpecs(TILE_TYPE type, int32_t id, float x, float y) {
         case FINISH:
             tile.flags[SOLID] = false;
             break;
+        case YELLOW_ORB:
+            tile.flags[SOLID] = false;
+        case BLACK_ORB:
+            tile.flags[SOLID] = false;
+        case DASH_ORB:
+            tile.flags[SOLID] = false;
         default:
             tile.flags[SOLID] = true;
             break;
@@ -212,6 +228,7 @@ TileSet* importTileSet(const char* filename) {
 bool exportTileSet(const char* filename, TileSet* set) {
     if (!filename || !set)
         return false;
+    
 
     FILE* out = fopen(filename, "wb");
 
@@ -244,6 +261,9 @@ void drawTiles(TileSet* set, int32_t offsetX, int32_t offsetY) {
 
         switch (current->tile_type) {
             case SOLID_DEFAULT:
+                al_draw_filled_rectangle(x, y, x2, y2, al_map_rgb(255, 255, 255));
+                break;
+            case TRESPASSABLE_DEFAULT:
                 al_draw_filled_rectangle(x, y, x2, y2, al_map_rgb(120, 120, 120));
                 break;
             case SPIKE:
@@ -252,6 +272,15 @@ void drawTiles(TileSet* set, int32_t offsetX, int32_t offsetY) {
             case FINISH:
                 al_draw_filled_rectangle(x, y, x2, y2, al_map_rgb(0, 255, 0));
                 break;
+            case YELLOW_ORB:
+                al_draw_filled_rectangle(x, y, x2, y2, al_map_rgb(255, 255, 0));
+                break;
+            case BLACK_ORB:
+                al_draw_filled_rectangle(x, y, x2, y2, al_map_rgb(255, 255, 255));
+                break;
+            case DASH_ORB:
+                al_draw_filled_rectangle(x, y, x2, y2, al_map_rgb(255, 0, 255));
+                break;
             default:
                 al_draw_filled_rectangle(x, y, x2, y2, al_map_rgb(100, 100, 255));
                 break;
@@ -259,7 +288,7 @@ void drawTiles(TileSet* set, int32_t offsetX, int32_t offsetY) {
     }
 }
 
-void addTile(TileSet* set, int32_t x, int32_t y, int32_t* id, TILE_TYPE type) {
+void addTile(TileSet* set, int32_t x, int32_t y, int32_t* id, TILE_TYPE type, int32_t offsetX, int32_t offsetY) {
     if (!set || !id) {
         printf("addTile: set/id invalido\n");
         return;
@@ -275,33 +304,77 @@ void addTile(TileSet* set, int32_t x, int32_t y, int32_t* id, TILE_TYPE type) {
     (*id)++;
 }
 
-void updateTiles(TileSet* set, Player* p) {
+void deleteTile(){
+
+}
+
+
+void updateTiles(TileSet* set, Player* p, int32_t offsetX, int32_t offsetY) {
     if (!set || !p)
         return;
 
     p->grounded = false;
+    Bounds temp;
 
     for (size_t i = 0; i < set->num_tiles; i++) {
         Tile* current = &set->tiles[i];
+        temp = current->bounds;
+        
+        temp.x += offsetX;
+        temp.y += offsetY;
 
         switch (current->tile_type) {
+            case TRESPASSABLE_DEFAULT:
+            //TODO REVISAR LÓGICA
+                if (((p->bounds.y + p->bounds.h) < temp.y + 10) && (p->velY > 0 || p->jump)){
+                    current->flags[SOLID] = true;
+                } else if ((p->bounds.y + p->bounds.h) > temp.y){
+                    current->flags[SOLID] = false;
+                }
+                if (current->flags[SOLID] && boundIntersectBottom(&p->bounds, &temp)) {
+                    boundPush(&p->bounds, &temp);
+                    p->grounded = true;
+                    p->velY = 0;
+                    p->actionAwait = false;
+                }
+                break;
             case SPIKE:
-                if (boundIntersect(&p->bounds, &current->bounds)) {
+                if (boundIntersect(&p->bounds, &temp)) {
                     dealDamage(p, 1);
                 }
                 break;
-
+            
             case FINISH:
+                break;
+            
+            case YELLOW_ORB:
+                if (p->actionAwait && boundIntersect(&p->bounds, &temp)){
+                    p->velY = -1;
+                    p->jump = false;
+                    p->grounded = false;
+                    p->actionAwait = false;
+                }
+                break;
+            case BLACK_ORB:
+                if (p->actionAwait && boundIntersect(&p->bounds, &temp)){
+                    p->velY = p->maxVel;
+                    p->jump = true;
+                    p->actionAwait = false;
+                }
+            case DASH_ORB:
+                if (boundIntersect(&p->bounds, &temp)){
+                }
                 break;
 
             default:
-                if (boundIntersectBottom(&p->bounds, &current->bounds)) {
+                if (boundIntersectBottom(&p->bounds, &temp)) {
                     p->grounded = true;
                     p->velY = 0;
+                    p->actionAwait = false;
                 }
 
-                if (current->flags[SOLID] && boundIntersect(&p->bounds, &current->bounds)) {
-                    boundPush(&p->bounds, &current->bounds);
+                if (current->flags[SOLID] && boundIntersect(&p->bounds, &temp)) {
+                    boundPush(&p->bounds, &temp);
                 }
                 break;
         }
@@ -341,9 +414,10 @@ int main() {
     player->moveLeft  = false;
     player->moveRight = false;
 
-    player->grounded = false;
-    player->jump     = false;
-
+    player->grounded    = false;
+    player->jump        = false;
+    player->actionAwait = false;
+    
     player->velX = 0;
     player->velY = 0;
 
@@ -487,7 +561,9 @@ int main() {
             }
 
             // tiles
-            updateTiles(game->tile_set, player);
+            updateTiles(game->tile_set, player, game->screenOffsetX, game->screenOffsetY);
+
+            player->actionAwait = false;
 
             // render
             al_clear_to_color(al_map_rgb(20, 20, 20));
@@ -534,12 +610,16 @@ int main() {
             if (ev.keyboard.keycode == ALLEGRO_KEY_D)
                 player->moveRight = true;
 
-            if (ev.keyboard.keycode == ALLEGRO_KEY_SPACE) {
+            if (ev.keyboard.keycode == ALLEGRO_KEY_UP) {
                 if (player->grounded) {
                     printf("Salto\n");
                     player->velY     = -1;
                     player->grounded = false;
                     player->jump     = false;
+                }
+
+                if(!player->grounded && player->velY != -1){
+                    player->actionAwait = true;
                 }
             }
 
@@ -549,11 +629,22 @@ int main() {
             if (ev.keyboard.keycode == ALLEGRO_KEY_1)
                 game->currentTileType = SOLID_DEFAULT;
 
+            if (ev.keyboard.keycode == ALLEGRO_KEY_6)
+                game->currentTileType = TRESPASSABLE_DEFAULT;
+
             if (ev.keyboard.keycode == ALLEGRO_KEY_2)
                 game->currentTileType = SPIKE;
 
             if (ev.keyboard.keycode == ALLEGRO_KEY_3)
                 game->currentTileType = FINISH;
+
+            if (ev.keyboard.keycode == ALLEGRO_KEY_4)
+                game->currentTileType = YELLOW_ORB;
+
+            if (ev.keyboard.keycode == ALLEGRO_KEY_5)
+                game->currentTileType = BLACK_ORB;
+
+            
 
         } else if (ev.type == ALLEGRO_EVENT_KEY_UP) {
 
@@ -575,7 +666,9 @@ int main() {
                         adjustToGrid(mx, DEFAULT_TILE_SIZE) - game->screenOffsetX,
                         adjustToGrid(my, DEFAULT_TILE_SIZE) - game->screenOffsetY,
                         &game->nextTileId,
-                        game->currentTileType
+                        game->currentTileType,
+                        game->screenOffsetX,
+                        game->screenOffsetY
                     );
                 }
             }
