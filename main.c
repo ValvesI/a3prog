@@ -12,7 +12,7 @@
 #define SCREEN_HEIGHT 720
 #define FLAG_NUM 10
 #define DEFAULT_TILE_SIZE 32
-#define BASE_HP 3
+#define BASE_HP 2
 
 typedef enum FLAGS {
     SOLID,
@@ -41,6 +41,7 @@ typedef struct butao {
 
 typedef struct player {
     int32_t hp;
+    int32_t immunity;
     Bounds bounds;
 
     bool moveRight;
@@ -49,6 +50,7 @@ typedef struct player {
     bool grounded;
     bool jump;
     bool actionAwait;
+    bool alive;
     //bool actionOnCooldown;
 
     float velY;
@@ -304,8 +306,19 @@ void addTile(TileSet* set, int32_t x, int32_t y, int32_t* id, TILE_TYPE type, in
     (*id)++;
 }
 
-void deleteTile(){
+void deleteTile(TileSet* set, int32_t x, int32_t y, int32_t* next_id){
+    if(!set) return;
 
+    for(size_t i = 0; i < set->num_tiles; i++){
+        if(set->tiles[i].bounds.x == x && set->tiles[i].bounds.y == y){
+            for(size_t j = i; j < set->num_tiles - 1; j++){
+                set->tiles[j].id--;
+                set->tiles[j] = set->tiles[j + 1];
+            }
+            (*next_id)--;
+            set->num_tiles--;
+        }
+    }
 }
 
 
@@ -326,7 +339,7 @@ void updateTiles(TileSet* set, Player* p, int32_t offsetX, int32_t offsetY) {
         switch (current->tile_type) {
             case TRESPASSABLE_DEFAULT:
             //TODO REVISAR LÓGICA
-                if (((p->bounds.y + p->bounds.h) < temp.y + 10) && (p->velY > 0 || p->jump)){
+                if (((p->bounds.y - p->bounds.h) < temp.y + 10) && (p->velY > 0 || p->jump)){
                     current->flags[SOLID] = true;
                 } else if ((p->bounds.y + p->bounds.h) > temp.y){
                     current->flags[SOLID] = false;
@@ -339,12 +352,14 @@ void updateTiles(TileSet* set, Player* p, int32_t offsetX, int32_t offsetY) {
                 }
                 break;
             case SPIKE:
-                if (boundIntersect(&p->bounds, &temp)) {
+                if (boundIntersect(&p->bounds, &temp) && p->immunity == 0) {
                     dealDamage(p, 1);
+                    p->immunity = 60;
                 }
                 break;
             
             case FINISH:
+                
                 break;
             
             case YELLOW_ORB:
@@ -405,6 +420,8 @@ int main() {
     Player* player = &game->player;
 
     player->hp = BASE_HP;
+    player->immunity = 0;
+    player->alive = true;
 
     player->bounds.x = 100;
     player->bounds.y = 100;
@@ -559,6 +576,18 @@ int main() {
                     }
                 }
             }
+            //player general
+            if(player->immunity){
+                player->immunity--;
+            }
+
+            if(player->hp < 0){
+                player->alive = false;
+            }
+
+
+
+
 
             // tiles
             updateTiles(game->tile_set, player, game->screenOffsetX, game->screenOffsetY);
@@ -575,7 +604,7 @@ int main() {
                 player->bounds.y,
                 player->bounds.x + player->bounds.w,
                 player->bounds.y + player->bounds.h,
-                al_map_rgb(255, 255, 255)
+                player->alive ? al_map_rgb(255, 255, 255) : al_map_rgb(0, 0, 255)
             );
 
 
@@ -671,6 +700,15 @@ int main() {
                         game->screenOffsetY
                     );
                 }
+
+                if (ev.mouse.button == 2) {
+                    deleteTile(
+                        game->tile_set,
+                        adjustToGrid(mx, DEFAULT_TILE_SIZE) - game->screenOffsetX,
+                        adjustToGrid(my, DEFAULT_TILE_SIZE) - game->screenOffsetY,
+                        &game->nextTileId);
+                }
+
             }
             
             if(ev.type == ALLEGRO_EVENT_KEY_DOWN){
